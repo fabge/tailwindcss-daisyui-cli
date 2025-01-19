@@ -1,0 +1,61 @@
+name: Check for new upstream releases
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "0 */6 * * *" # 4 times a day
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      release-tailwind: ${{ steps.check-tailwind.outputs.release }}
+      release-daisyui: ${{ steps.check-daisyui.outputs.release }}
+    steps:
+      # checkout current repo
+      - name: Checkout current repo
+        uses: actions/checkout@v4
+
+      - name: Get latest Tailwind CSS version
+        run: |
+          TAILWIND_LATEST_VERSION=$(curl -s https://api.github.com/repos/tailwindlabs/tailwindcss/releases/latest | jq -r .tag_name)
+          echo "TAILWIND_LATEST_VERSION=$TAILWIND_LATEST_VERSION" >> $GITHUB_ENV
+
+      - name: Get latest DaisyUI version
+        run: |
+          DAISYUI_LATEST_VERSION=$(curl -s https://api.github.com/repos/saadeghi/daisyui/releases/latest | jq -r .tag_name)
+          echo "DAISYUI_LATEST_VERSION=$DAISYUI_LATEST_VERSION" >> $GITHUB_ENV
+
+      - name: Check if daisyUI was released
+        run: |
+          source properties.env
+          if [ "$DAISYUI_LATEST_VERSION" != "$DAISYUI_CURRENT_VERSION" ]; then
+            echo "New DaisyUI release found"
+            sed -i "s/DAISYUI_CURRENT_VERSION=.*/DAISYUI_CURRENT_VERSION=$DAISYUI_LATEST_VERSION/" properties.env
+            echo "release-daisyui=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check if Tailwind CSS was released
+        run: |
+          source properties.env
+          if [ "$TAILWIND_LATEST_VERSION" != "$TAILWIND_CURRENT_VERSION" ]; then
+            echo "New Tailwind CSS release found"
+            sed -i "s/TAILWIND_CURRENT_VERSION=.*/TAILWIND_CURRENT_VERSION=$TAILWIND_LATEST_VERSION/" properties.env
+            echo "release-tailwind=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Trigger a new release by pushing the latest properties.env file with incremented versions
+        run: |
+          source properties.env
+
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "<>"
+          git add properties.env
+          git commit -m "fix: update properties.env with latest versions (patch)" || exit 0
+          git push
+
+  release:
+    needs: check
+    if: ${{ needs.check.outputs.release-tailwind == 'true' || needs.check.outputs.release-daisyui == 'true' }}
+    uses: ./.github/workflows/release.yml

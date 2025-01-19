@@ -1,0 +1,317 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_channel:
+        description: 'Release channel'
+        required: false
+        default: 'next'
+        type: string
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  APP_NAME: tailwindcss-oxide
+  NODE_VERSION: 20
+  OXIDE_LOCATION: ./crates/node
+
+jobs:
+  # test:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         fetch-tags: true
+  #         fetch-depth: 20
+  #         repository: tailwindlabs/tailwindcss
+  #         ref: next
+
+  #     - name: Checkout current repo
+  #       uses: actions/checkout@v4
+  #       with:
+  #         path: tailwindcss-daisyui
+  #         fetch-tags: true
+  #         fetch-depth: 0
+  #         token: ${{ github.token }}
+
+  build:
+    strategy:
+      matrix:
+        include:
+          # Windows
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+          # macOS
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            strip: strip -x # Must use -x on macOS. This produces larger results on linux.
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            page-size: 14
+            strip: strip -x # Must use -x on macOS. This produces larger results on linux.
+          # Android
+          - os: ubuntu-latest
+            target: aarch64-linux-android
+            strip: ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip
+          - os: ubuntu-latest
+            target: armv7-linux-androideabi
+            strip: ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip
+          # Linux
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            strip: strip
+            container:
+              image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            strip: llvm-strip
+            container:
+              image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
+          - os: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            strip: llvm-strip
+            container:
+              image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-zig
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            strip: aarch64-linux-musl-strip
+            download: true
+            container:
+              image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            strip: strip
+            download: true
+            container:
+              image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
+
+    name: Build ${{ matrix.target }} (OXIDE)
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: tailwindlabs/tailwindcss
+          ref: next
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      # Cargo already skips downloading dependencies if they already exist
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      # Cache the `oxide` Rust build
+      - name: Cache oxide build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ./oxide/target/
+            ./crates/node/*.node
+            ./crates/node/index.js
+            ./crates/node/index.d.ts
+          key: ${{ runner.os }}-${{ matrix.target }}-oxide-${{ hashFiles('./crates/**/*') }}
+
+      - name: Install Node.JS
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Rust (Stable)
+        if: ${{ matrix.download }}
+        run: |
+          rustup default stable
+
+      - name: Setup rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Install dependencies
+        run: pnpm install --ignore-scripts --filter=!./playgrounds/*
+
+      - name: Build release
+        run: pnpm run --filter ${{ env.OXIDE_LOCATION }} build
+        env:
+          RUST_TARGET: ${{ matrix.target }}
+          JEMALLOC_SYS_WITH_LG_PAGE: ${{ matrix.page-size }}
+
+      - name: Strip debug symbols # https://github.com/rust-lang/rust/issues/46034
+        if: ${{ matrix.strip }}
+        run: ${{ matrix.strip }} ${{ env.OXIDE_LOCATION }}/*.node
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.target }}
+          path: ${{ env.OXIDE_LOCATION }}/*.node
+
+  release:
+    runs-on: macos-14
+    timeout-minutes: 15
+    name: Build and release Tailwind CSS
+
+    permissions:
+      contents: write # for softprops/action-gh-release to create GitHub release
+      # https://docs.npmjs.com/generating-provenance-statements#publishing-packages-with-provenance-via-github-actions
+      id-token: write
+
+    needs:
+      - build
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-tags: true
+          fetch-depth: 20
+          repository: tailwindlabs/tailwindcss
+          ref: next
+
+      - name: Checkout current repo
+        uses: actions/checkout@v4
+        with:
+          path: tailwindcss-daisyui
+          fetch-tags: true
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: pnpm --filter=!./playgrounds/* install
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ env.OXIDE_LOCATION }}
+
+      - name: Move artifacts
+        run: |
+          cd ${{ env.OXIDE_LOCATION }}
+          cp bindings-x86_64-pc-windows-msvc/* ./npm/win32-x64-msvc/
+          cp bindings-aarch64-pc-windows-msvc/* ./npm/win32-arm64-msvc/
+          cp bindings-x86_64-apple-darwin/* ./npm/darwin-x64/
+          cp bindings-aarch64-apple-darwin/* ./npm/darwin-arm64/
+          cp bindings-aarch64-linux-android/* ./npm/android-arm64/
+          cp bindings-armv7-linux-androideabi/* ./npm/android-arm-eabi/
+          cp bindings-aarch64-unknown-linux-gnu/* ./npm/linux-arm64-gnu/
+          cp bindings-aarch64-unknown-linux-musl/* ./npm/linux-arm64-musl/
+          cp bindings-armv7-unknown-linux-gnueabihf/* ./npm/linux-arm-gnueabihf/
+          cp bindings-x86_64-unknown-linux-gnu/* ./npm/linux-x64-gnu/
+          cp bindings-x86_64-unknown-linux-musl/* ./npm/linux-x64-musl/
+
+      - name: Add daisyui dependency
+        run: |
+          ./tailwindcss-daisyui/add-daisyui-dependency.sh
+
+      - name: Build Tailwind CSS
+        run: pnpm run build
+
+      - name: Run pre-publish optimizations scripts
+        run: node ./scripts/pre-publish-optimizations.mjs
+
+      - name: Lock pre-release versions
+        run: node ./scripts/lock-pre-release-versions.mjs
+
+      - name: Get release notes
+        working-directory: tailwindcss-daisyui
+        shell: bash
+        run: |
+          echo $(git describe --tags --abbrev=0)
+
+          print_changelog() {
+            gitLogCommand="git log --no-merges --reverse --pretty=\"- %s → %h\""
+            lastTag=$(git describe --tags --abbrev=0 2>/dev/null)
+            commitRange="${lastTag}..HEAD"
+            commits=$(eval "$gitLogCommand" "$commitRange")
+            changelog="## Release notes 🎁\n### Changes\n${commits}\n"
+            echo -e "$changelog"
+          }
+
+          print_version_table() {
+            source ./properties.env
+
+            echo -e "\n### Versions" \
+              "\n| Component | Version |" \
+              "\n| --- | --- |" \
+              "\n| :star2: Tailwind CSS | [$TAILWIND_CURRENT_VERSION](https://github.com/$TAILWIND_REPOSITORY/releases/tag/v$TAILWIND_CURRENT_VERSION) |" \
+              "\n| :blossom: daisyUI    | [$DAISYUI_CURRENT_VERSION](https://github.com/$DAISYUI_REPOSITORY/releases/tag/v$DAISYUI_CURRENT_VERSION) |" \
+              "\n"
+          }
+
+          echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
+          print_changelog >> $GITHUB_ENV
+          print_version_table >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Upload Standalone Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tailwindcss-standalone
+          path: packages/@tailwindcss-standalone/dist/
+
+      - name: Get Next Version
+        id: semver
+        uses: ietf-tools/semver-action@v1
+        with:
+          token: ${{ github.token }}
+          branch: main
+
+      - name: Create a new release by pushing the latest properties.env file and tagging with the latest version
+        working-directory: tailwindcss-daisyui
+        run: |
+          source properties.env
+          sed -i '' "s/TAILWIND_CSS_DAISYUI_VERSION=.*/TAILWIND_CSS_DAISYUI_VERSION=${{ steps.semver.outputs.next }}/" properties.env
+
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "<>"
+          git add properties.env
+          git commit -m "Update properties.env with latest version" || exit 0
+          git push
+
+          git tag v${{ steps.semver.outputs.next }}
+          git push origin v${{ steps.semver.outputs.next }}
+          git push --tags
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          tag_name: ${{ steps.semver.outputs.next }}
+          body: |
+            ${{ env.RELEASE_NOTES }}
+          files: |
+            packages/@tailwindcss-standalone/dist/sha256sums.txt
+            packages/@tailwindcss-standalone/dist/tailwindcss-linux-arm64
+            packages/@tailwindcss-standalone/dist/tailwindcss-linux-arm64-musl
+            packages/@tailwindcss-standalone/dist/tailwindcss-linux-x64
+            packages/@tailwindcss-standalone/dist/tailwindcss-linux-x64-musl
+            packages/@tailwindcss-standalone/dist/tailwindcss-macos-arm64
+            packages/@tailwindcss-standalone/dist/tailwindcss-macos-x64
+            packages/@tailwindcss-standalone/dist/tailwindcss-windows-x64.exe
