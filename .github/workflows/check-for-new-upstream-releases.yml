@@ -61,3 +61,4 @@ jobs:
     uses: ./.github/workflows/release.yml
     permissions:
       contents: write
+      id-token: write
