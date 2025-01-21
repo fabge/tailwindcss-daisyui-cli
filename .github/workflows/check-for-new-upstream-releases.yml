@@ -1,8 +1,8 @@
 name: Check for new upstream releases
 on:
   workflow_dispatch:
-  # schedule:
-  #   - cron: "0 */6 * * *" # 4 times a day
+  schedule:
+    - cron: "0 */6 * * *" # 4 times a day
 permissions:
   contents: write
   actions: write
