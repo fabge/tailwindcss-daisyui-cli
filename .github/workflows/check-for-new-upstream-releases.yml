@@ -5,6 +5,7 @@ on:
   #   - cron: "0 */6 * * *" # 4 times a day
 permissions:
   contents: write
+  actions: write
 
 jobs:
   check:
