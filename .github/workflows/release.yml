@@ -8,6 +8,11 @@ on:
         required: false
         default: 'next'
         type: string
+  push:
+    branches:
+      - main
+    paths:
+      - properties.env
 
 permissions:
   contents: read

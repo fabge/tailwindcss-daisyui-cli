@@ -56,11 +56,3 @@ jobs:
           git add properties.env
           git commit -m "fix: update properties.env with latest versions (patch)" || exit 0
           git push
-
-  release:
-    needs: check
-    if: ${{ needs.check.outputs.release-tailwind == 'true' || needs.check.outputs.release-daisyui == 'true' }}
-    uses: ./.github/workflows/release.yml
-    permissions:
-      contents: write
-      id-token: write
