@@ -1,6 +1,6 @@
 name: Release
-
 on:
+  workflow_call:
   workflow_dispatch:
     inputs:
       release_channel:
@@ -8,9 +8,6 @@ on:
         required: false
         default: 'next'
         type: string
-  push:
-    branches:
-      - main
 
 permissions:
   contents: read
@@ -21,24 +18,6 @@ env:
   OXIDE_LOCATION: ./crates/node
 
 jobs:
-  # test:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #       with:
-  #         fetch-tags: true
-  #         fetch-depth: 20
-  #         repository: tailwindlabs/tailwindcss
-  #         ref: next
-
-  #     - name: Checkout current repo
-  #       uses: actions/checkout@v4
-  #       with:
-  #         path: tailwindcss-daisyui
-  #         fetch-tags: true
-  #         fetch-depth: 0
-  #         token: ${{ github.token }}
-
   build:
     strategy:
       matrix:
