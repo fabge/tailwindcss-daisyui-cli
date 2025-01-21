@@ -9,9 +9,6 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    outputs:
-      release-tailwind: ${{ steps.check-tailwind.outputs.release }}
-      release-daisyui: ${{ steps.check-daisyui.outputs.release }}
     steps:
       # checkout current repo
       - name: Checkout current repo
@@ -56,3 +53,14 @@ jobs:
           git add properties.env
           git commit -m "fix: update properties.env with latest versions (patch)" || exit 0
           git push
+
+      - uses: actions/github-script@v7
+        if: steps.check-tailwind.outputs.release == 'true' || steps.check-daisyui.outputs.release == 'true'
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: 'fabge',
+              repo: 'tailwindcss-daisyui-cli',
+              workflow_id: 'release.yml',
+              ref: 'main'
+            })

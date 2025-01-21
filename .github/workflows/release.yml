@@ -1,6 +1,7 @@
 name: Release
 on:
   workflow_call:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -166,7 +167,7 @@ jobs:
       - name: Checkout current repo
         uses: actions/checkout@v4
         with:
-          path: tailwindcss-daisyui
+          path: tailwindcss-daisyui-cli
           fetch-tags: true
           fetch-depth: 0
           token: ${{ github.token }}
@@ -205,7 +206,7 @@ jobs:
 
       - name: Add daisyui dependency
         run: |
-          ./tailwindcss-daisyui/add-daisyui-dependency.sh
+          ./tailwindcss-daisyui-cli/add-daisyui-dependency.sh
 
       - name: Build Tailwind CSS
         run: pnpm run build
@@ -217,7 +218,7 @@ jobs:
         run: node ./scripts/lock-pre-release-versions.mjs
 
       - name: Get release notes
-        working-directory: tailwindcss-daisyui
+        working-directory: tailwindcss-daisyui-cli
         shell: bash
         run: |
           echo $(git describe --tags --abbrev=0)
@@ -261,7 +262,7 @@ jobs:
           branch: main
 
       - name: Create a new release by pushing the latest properties.env file and tagging with the latest version
-        working-directory: tailwindcss-daisyui
+        working-directory: tailwindcss-daisyui-cli
         run: |
           source properties.env
           sed -i '' "s/TAILWIND_CSS_DAISYUI_VERSION=.*/TAILWIND_CSS_DAISYUI_VERSION=${{ steps.semver.outputs.next }}/" properties.env
