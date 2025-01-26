@@ -260,7 +260,6 @@ jobs:
         with:
           token: ${{ github.token }}
           branch: main
-          prefix: v
 
       - name: Create a new release by pushing the latest properties.env file and tagging with the latest version
         working-directory: tailwindcss-daisyui-cli
@@ -275,7 +274,7 @@ jobs:
           git push
 
           git tag ${{ steps.semver.outputs.next }}
-          git push origin v${{ steps.semver.outputs.next }}
+          git push origin ${{ steps.semver.outputs.next }}
           git push --tags
 
       - name: Release
