@@ -274,7 +274,7 @@ jobs:
           git commit -m "Update properties.env with latest version" || exit 0
           git push
 
-          git tag v${{ steps.semver.outputs.next }}
+          git tag ${{ steps.semver.outputs.next }}
           git push origin v${{ steps.semver.outputs.next }}
           git push --tags
 
