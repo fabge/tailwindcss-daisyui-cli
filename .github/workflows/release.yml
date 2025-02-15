@@ -143,6 +143,49 @@ jobs:
           name: bindings-${{ matrix.target }}
           path: ${{ env.OXIDE_LOCATION }}/*.node
 
+  build-freebsd:
+    name: Build x86_64-unknown-freebsd (OXIDE)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build FreeBSD
+        uses: cross-platform-actions/action@v0.25.0
+        env:
+          DEBUG: napi:*
+          RUSTUP_HOME: /usr/local/rustup
+          CARGO_HOME: /usr/local/cargo
+          RUSTUP_IO_THREADS: 1
+          RUST_TARGET: x86_64-unknown-freebsd
+        with:
+          operating_system: freebsd
+          version: '14.0'
+          memory: 13G
+          cpu_count: 3
+          environment_variables: 'DEBUG RUSTUP_IO_THREADS'
+          shell: bash
+          run: |
+            sudo pkg install -y -f curl node libnghttp2 npm
+            sudo npm install -g pnpm --unsafe-perm=true
+            curl https://sh.rustup.rs -sSf --output rustup.sh
+            sh rustup.sh -y --profile minimal --default-toolchain beta
+            source "$HOME/.cargo/env"
+            echo "~~~~ rustc --version ~~~~"
+            rustc --version
+            echo "~~~~ node -v ~~~~"
+            node -v
+            echo "~~~~ pnpm --version ~~~~"
+            pnpm --version
+            pnpm install --ignore-scripts --filter=!./playgrounds/* || true
+            pnpm run --filter ${{ env.OXIDE_LOCATION }} build
+            strip -x ${{ env.OXIDE_LOCATION }}/*.node
+            ls -la ${{ env.OXIDE_LOCATION }}
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings-x86_64-unknown-freebsd
+          path: ${{ env.OXIDE_LOCATION }}/*.node
+
   release:
     runs-on: macos-14
     timeout-minutes: 15
@@ -157,6 +200,7 @@ jobs:
       - build
 
     steps:
+      # custom checkout for tailwindcss
       - uses: actions/checkout@v4
         with:
           fetch-tags: true
@@ -164,6 +208,7 @@ jobs:
           repository: tailwindlabs/tailwindcss
           ref: main
 
+      # custom checkout for daisyui
       - name: Checkout current repo
         uses: actions/checkout@v4
         with:
@@ -180,6 +225,29 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
+
+      # Cargo already skips downloading dependencies if they already exist
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      # Cache the `oxide` Rust build
+      - name: Cache oxide build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ./oxide/target/
+            ./crates/node/*.node
+            ./crates/node/index.js
+            ./crates/node/index.d.ts
+          key: ${{ runner.os }}-${{ matrix.target }}-oxide-${{ hashFiles('./crates/**/*') }}
 
       - name: Install dependencies
         run: pnpm --filter=!./playgrounds/* install
@@ -203,7 +271,9 @@ jobs:
           cp bindings-armv7-unknown-linux-gnueabihf/* ./npm/linux-arm-gnueabihf/
           cp bindings-x86_64-unknown-linux-gnu/* ./npm/linux-x64-gnu/
           cp bindings-x86_64-unknown-linux-musl/* ./npm/linux-x64-musl/
+          cp bindings-x86_64-unknown-freebsd/* ./npm/freebsd-x64/
 
+      # custom script to add daisyui dependency
       - name: Add daisyui dependency
         run: |
           ./tailwindcss-daisyui-cli/add-daisyui-dependency.sh
@@ -217,6 +287,7 @@ jobs:
       - name: Lock pre-release versions
         run: node ./scripts/lock-pre-release-versions.mjs
 
+      # custom script to get release notes
       - name: Get release notes
         working-directory: tailwindcss-daisyui-cli
         shell: bash
@@ -238,8 +309,8 @@ jobs:
             echo -e "\n### Versions" \
               "\n| Component | Version |" \
               "\n| --- | --- |" \
-              "\n| :star2: Tailwind CSS | [$TAILWIND_CURRENT_VERSION](https://github.com/$TAILWIND_REPOSITORY/releases/tag/v$TAILWIND_CURRENT_VERSION) |" \
-              "\n| :blossom: daisyUI    | [$DAISYUI_CURRENT_VERSION](https://github.com/$DAISYUI_REPOSITORY/releases/tag/v$DAISYUI_CURRENT_VERSION) |" \
+              "\n| :star2: Tailwind CSS | [$TAILWIND_CURRENT_VERSION](https://github.com/tailwindlabs/tailwindcss/releases/tag/$TAILWIND_CURRENT_VERSION) |" \
+              "\n| :blossom: daisyUI    | [$DAISYUI_CURRENT_VERSION](https://github.com/saadeghi/daisyui/releases/tag/$DAISYUI_CURRENT_VERSION) |" \
               "\n"
           }
 
@@ -293,3 +364,4 @@ jobs:
             packages/@tailwindcss-standalone/dist/tailwindcss-macos-arm64
             packages/@tailwindcss-standalone/dist/tailwindcss-macos-x64
             packages/@tailwindcss-standalone/dist/tailwindcss-windows-x64.exe
+            packages/@tailwindcss-standalone/dist/tailwindcss-freebsd-x64

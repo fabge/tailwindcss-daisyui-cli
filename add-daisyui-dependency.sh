@@ -2,6 +2,7 @@
 set -e
 
 cd packages/@tailwindcss-standalone
+# TODO change this to the latest version of daisyui as soon as v5 is released
 pnpm add daisyui@beta
 
 cd src
