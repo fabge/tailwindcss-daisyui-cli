@@ -3,7 +3,7 @@ set -e
 
 cd packages/@tailwindcss-standalone
 # TODO change this to the latest version of daisyui as soon as v5 is released
-pnpm add daisyui@beta
+pnpm add daisyui@latest
 
 cd src
 # Add daisyui to likelyEmbeddedFile check
